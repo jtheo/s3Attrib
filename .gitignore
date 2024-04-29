@@ -1,0 +1,13 @@
+bin
+out.log
+reports/*
+./s3Attrib
+tmpFile
+reports
+data
+log
+logFile
+bin
+out.txt
+cr
+list
