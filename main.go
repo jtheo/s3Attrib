@@ -19,14 +19,15 @@ func main() {
 	jobs := make(chan string, c.workers)
 	results := make(chan Result, len(*c.keys))
 
-	for w := 1; w <= c.workers; w++ {
-		go worker(c.bucket, c.sdkConfig, jobs, results)
-	}
-
-	for _, key := range *c.keys {
-		jobs <- key
-	}
-	close(jobs)
+	go func() {
+		for w := 1; w <= c.workers; w++ {
+			go worker(c.bucket, c.sdkConfig, jobs, results)
+		}
+		for _, key := range *c.keys {
+			jobs <- key
+		}
+		close(jobs)
+	}()
 
 	for r := 0; r < len(*c.keys); r++ {
 		res := <-results
