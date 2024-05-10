@@ -2,6 +2,7 @@ package main
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -21,7 +22,7 @@ func main() {
 
 	go func() {
 		for w := 1; w <= c.workers; w++ {
-			go worker(c.bucket, c.sdkConfig, jobs, results)
+			go worker(c.bucket, c.sdkConfig, jobs, results, c)
 		}
 		for _, key := range *c.keys {
 			jobs <- key
@@ -31,16 +32,16 @@ func main() {
 
 	for r := 0; r < len(*c.keys); r++ {
 		res := <-results
-		fmt.Printf("Enc: %s - Key: %s\n", res.enc, res.key)
+		fmt.Printf("Key: %s - Size: %d\n", res.key, *res.size)
 	}
 }
 
 type Result struct {
-	key string
-	enc string
+	size *int64
+	key  string
 }
 
-func worker(bucket string, sdkConfig aws.Config, jobs chan string, results chan Result) {
+func worker(bucket string, sdkConfig aws.Config, jobs chan string, results chan Result, c Config) {
 	s3Client := s3.NewFromConfig(sdkConfig)
 
 	for key := range jobs {
@@ -50,31 +51,34 @@ func worker(bucket string, sdkConfig aws.Config, jobs chan string, results chan 
 			Key:    aws.String(key),
 		})
 		if err != nil {
-			log.Printf("Key: %s in error: %v\n", key, err)
+			c.logger.Printf("Key: %s in error: %v\n", key, err)
 			continue
 		}
-		if res.Body != nil {
-			res.Body.Close()
+		results <- Result{
+			key:  key,
+			size: res.ContentLength,
 		}
 
-		results <- Result{
-			key: key,
-			enc: string(res.ServerSideEncryption),
+		if res.Body != nil {
+			res.Body.Close()
 		}
 	}
 }
 
 type Config struct {
+	logger    *log.Logger
+	keys      *[]string
 	bucket    string
 	list      string
 	sdkConfig aws.Config
 	workers   int
-	keys      *[]string
 }
 
 func run() Config {
 	c := Config{}
 	var err error
+	buf := bytes.Buffer{}
+	c.logger = log.New(&buf, "logger: ", log.Lshortfile)
 
 	flag.StringVar(&c.bucket, "b", "", "bucket to read")
 	flag.StringVar(&c.list, "l", "", "file list")
@@ -89,7 +93,7 @@ func run() Config {
 	c.sdkConfig, err = config.LoadDefaultConfig(context.TODO())
 	if err != nil {
 		fmt.Println("Couldn't load default configuration. Have you set up your AWS account?")
-		log.Fatalln(err)
+		c.logger.Fatalln(err)
 	}
 	keys := load(c)
 	c.keys = &keys
@@ -104,7 +108,7 @@ func run() Config {
 func load(c Config) []string {
 	fd, err := os.Open(c.list)
 	if err != nil {
-		log.Fatalln(err)
+		c.logger.Fatalln(err)
 	}
 	defer fd.Close()
 
@@ -116,7 +120,7 @@ func load(c Config) []string {
 	}
 
 	if err := sc.Err(); err != nil {
-		log.Fatal(err)
+		c.logger.Fatal(err)
 	}
 	return keys
 }
